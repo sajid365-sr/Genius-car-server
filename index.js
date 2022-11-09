@@ -19,8 +19,9 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     const serviceCollection = client.db("geniusCar").collection("services");
+    const orderCollection = client.db("geniusCar").collection("orders");
 
-    // READ ALL
+    // READ ALL(GET)
     app.get("/services", async (req, res) => {
       const query = {};
       const cursor = serviceCollection.find(query);
@@ -29,7 +30,7 @@ async function run() {
       res.send(services);
     });
 
-    // READ ONE
+    // READ ONE(GET)
     app.get("/services/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: ObjectId(id) };
@@ -37,7 +38,19 @@ async function run() {
 
       res.send(service);
     });
+
+    // CREATE(POST)
+    app.post("/orders", async(req, res)=>{
+        const order = req.body;
+        const result = await orderCollection.insertOne(order);
+
+        res.send(result);
+        
+    })
+
+
   } finally {
+      
   }
 }
 
