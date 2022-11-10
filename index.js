@@ -39,6 +39,22 @@ async function run() {
       res.send(service);
     });
 
+    // READ ALL ORDERS(GET)
+    app.get('/orders', async(req, res) =>{
+      
+      let query = {};
+      if(req.query.email){
+        query = {
+          email:req.query.email
+        }
+      }
+      console.log(query)
+      const cursor = orderCollection.find(query);
+      const orders = await cursor.toArray();
+
+      res.send(orders);
+    })
+
     // CREATE(POST)
     app.post("/orders", async(req, res)=>{
         const order = req.body;
