@@ -48,7 +48,7 @@ async function run() {
           email:req.query.email
         }
       }
-      console.log(query)
+      
       const cursor = orderCollection.find(query);
       const orders = await cursor.toArray();
 
@@ -62,6 +62,31 @@ async function run() {
 
         res.send(result);
         
+    })
+
+    //UPDATE
+    app.patch('/orders/:id', async(req, res) =>{
+      const id = req.params.id;
+      const status = req.body.status;
+      const query = {_id: ObjectId(id)}; // Search which item will be updated
+      const updatedDoc = { // What is the updated value
+        $set:{
+          status: status
+        }
+      }
+
+      const result = await orderCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    })
+
+    // DELETE 
+    app.delete('/orders/:id', async(req,res) =>{
+      const id  = req.params.id;
+      const query = {_id: ObjectId(id)};
+      const result = await orderCollection.deleteOne(query);
+
+      res.send(result);
+
     })
 
 
