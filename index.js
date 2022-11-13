@@ -2,8 +2,11 @@ const express = require("express");
 const app = express();
 const port = process.env.PORT || 5000;
 const cors = require("cors");
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
+
+
 
 // Middleware
 app.use(cors());
@@ -16,10 +19,39 @@ const client = new MongoClient(uri, {
   serverApi: ServerApiVersion.v1,
 });
 
+// Verify JWT token...
+function verifyJWT(req, res, next){
+  const authHeader = req.headers.authorization;
+  if(!authHeader){
+    return res.status(401).send({message: 'Unauthorized Access'});
+
+  }
+  const token = authHeader.split(' ')[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function(err, decoded){
+    if(err){
+      return res.status(403).send({message: 'Forbidden Access'});
+    }
+    req.decoded = decoded;
+    next();
+  })
+}
+
+
+
+
 async function run() {
   try {
     const serviceCollection = client.db("geniusCar").collection("services");
     const orderCollection = client.db("geniusCar").collection("orders");
+
+    //JWT TOKEN
+    app.post('/jwt', (req, res) =>{
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET,{expiresIn:'1h'}); // Assigning JWT token first time after login. Expire time is in ms.
+
+      res.send({token});
+    })
+
 
     // READ ALL(GET)
     app.get("/services", async (req, res) => {
@@ -40,8 +72,15 @@ async function run() {
     });
 
     // READ ALL ORDERS(GET)
-    app.get('/orders', async(req, res) =>{
+    app.get('/orders', verifyJWT, async(req, res) =>{
       
+      const decoded = req.decoded;
+      
+
+      if(decoded.email !== req.query.email){ // check if decoded email and login user email are same.
+        res.status(403).send({message: 'Unauthorized Access'});
+      }
+
       let query = {};
       if(req.query.email){
         query = {
@@ -56,7 +95,7 @@ async function run() {
     })
 
     // CREATE(POST)
-    app.post("/orders", async(req, res)=>{
+    app.post("/orders", verifyJWT, async(req, res)=>{
         const order = req.body;
         const result = await orderCollection.insertOne(order);
 
@@ -65,7 +104,7 @@ async function run() {
     })
 
     //UPDATE
-    app.patch('/orders/:id', async(req, res) =>{
+    app.patch('/orders/:id',verifyJWT, async(req, res) =>{
       const id = req.params.id;
       const status = req.body.status;
       const query = {_id: ObjectId(id)}; // Search which item will be updated
@@ -80,7 +119,7 @@ async function run() {
     })
 
     // DELETE 
-    app.delete('/orders/:id', async(req,res) =>{
+    app.delete('/orders/:id',verifyJWT, async(req,res) =>{
       const id  = req.params.id;
       const query = {_id: ObjectId(id)};
       const result = await orderCollection.deleteOne(query);
