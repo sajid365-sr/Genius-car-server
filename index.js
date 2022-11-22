@@ -55,14 +55,30 @@ async function run() {
 
     // READ ALL(GET)
     app.get("/services", async (req, res) => {
-      // const query = { price:{$lg:100, $gt:200} }
+      // const query = { price:{$lg:100, $gt:200} };
       // const query = {  price: {$eq : 200} };
-      const query = {}
+      // const query = {price : {$ne:200}};
+      // const query = { price : {$in : [20, 120, 150]} };
+      // const query = { price : {$nin : [20, 120, 150]} };
+
+      // const query = { $and: [{ price: {$gt: 40}}, {title: {$eq: 'Engine Oil Change'}}] };
+
+      const search = req.query.search;
+      
+      let query = { };
+      if(search.length){
+        query = {
+          $text:{
+            $search:search
+          }
+        } 
+      }
       const order = req.query.order === 'asc' ? 1 : -1;
       const cursor = serviceCollection.find(query).sort({price : order});
       const services = await cursor.toArray();
 
       res.send(services);
+
     });
 
     // READ ONE(GET)
