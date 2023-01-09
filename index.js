@@ -1,12 +1,17 @@
 const express = require("express");
 const app = express();
 const port = process.env.PORT || 5000;
+require("dotenv").config();
 const cors = require("cors");
 const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-require("dotenv").config();
 
 
+// SSL Commerce Integrations
+const store_id = process.env.SSL_STORE_ID;
+const store_password = process.env.SSL_SECRET_KEY;
+const is_live = false //true for live, false for sandbox
+const SSLCommerzPayment = require('sslcommerz-lts');
 
 // Middleware
 app.use(cors());
@@ -20,19 +25,19 @@ const client = new MongoClient(uri, {
 });
 
 // Verify JWT token...
-function verifyJWT(req, res, next){
+function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
-  if(!authHeader){
-    return res.status(401).send({message: 'Unauthorized Access'});
+  if (!authHeader) {
+    return res.status(401).send({ message: 'Unauthorized Access' });
 
   }
   const token = authHeader.split(' ')[1];
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function(err, decoded){
-    if(err){
-      return res.status(403).send({message: 'Forbidden Access'});
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+      return res.status(403).send({ message: 'Forbidden Access' });
     }
     req.decoded = decoded;
-    next(); 
+    next();
   })
 }
 
@@ -45,11 +50,11 @@ async function run() {
     const orderCollection = client.db("geniusCar").collection("orders");
 
     //JWT TOKEN
-    app.post('/jwt', (req, res) =>{
+    app.post('/jwt', (req, res) => {
       const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET,{expiresIn:'1h'}); // Assigning JWT token first time after login. Expire time is in ms.
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' }); // Assigning JWT token first time after login. Expire time is in ms.
 
-      res.send({token});
+      res.send({ token });
     })
 
 
@@ -64,17 +69,17 @@ async function run() {
       // const query = { $and: [{ price: {$gt: 40}}, {title: {$eq: 'Engine Oil Change'}}] };
 
       const search = req.query.search;
-      
-      let query = { };
-      if(search.length){
+
+      let query = {};
+      if (search.length) {
         query = {
-          $text:{
-            $search:search
+          $text: {
+            $search: search
           }
-        } 
+        }
       }
       const order = req.query.order === 'asc' ? 1 : -1;
-      const cursor = serviceCollection.find(query).sort({price : order});
+      const cursor = serviceCollection.find(query).sort({ price: order });
       const services = await cursor.toArray();
 
       res.send(services);
@@ -91,22 +96,22 @@ async function run() {
     });
 
     // READ ALL ORDERS(GET)
-    app.get('/orders', verifyJWT, async(req, res) =>{
-      
-      const decoded = req.decoded;
-      
+    app.get('/orders', verifyJWT, async (req, res) => {
 
-      if(decoded.email !== req.query.email){ // check if decoded email and login user email are same.
-        res.status(403).send({message: 'Unauthorized Access'});
+      const decoded = req.decoded;
+
+
+      if (decoded.email !== req.query.email) { // check if decoded email and login user email are same.
+        res.status(403).send({ message: 'Unauthorized Access' });
       }
 
       let query = {};
-      if(req.query.email){
+      if (req.query.email) {
         query = {
-          email:req.query.email
+          email: req.query.email
         }
       }
-      
+
       const cursor = orderCollection.find(query);
       const orders = await cursor.toArray();
 
@@ -114,21 +119,84 @@ async function run() {
     })
 
     // CREATE(POST)
-    app.post("/orders", verifyJWT, async(req, res)=>{
-        const order = req.body;
-        const result = await orderCollection.insertOne(order);
+    app.post("/orders", verifyJWT, async (req, res) => {
+      const order = req.body;
+      const orderedService = await serviceCollection.findOne({ _id: ObjectId(order.serviceId) });
+      const tnxId = new ObjectId().toString();
 
-        res.send(result);
-        
+
+      const data = {
+        total_amount: orderedService.price,
+        currency: order.currency,
+        tran_id: tnxId, // use unique tran_id for each api call
+        success_url: `http://localhost:5000/payment/success?transactionId=${tnxId}`,
+        fail_url: 'http://localhost:5000/payment/fail',
+        cancel_url: 'http://localhost:5000/payment/cancel',
+        ipn_url: 'http://localhost:3030/ipn',
+        shipping_method: 'Courier',
+        product_name: order.serviceName,
+        product_category: 'Electronic',
+        product_profile: 'general',
+        cus_name: order.customerName,
+        cus_email: order.email,
+        cus_add1: order.address,
+        cus_add2: 'Dhaka',
+        cus_city: 'Dhaka',
+        cus_state: 'Dhaka',
+        cus_postcode: order.postcode,
+        cus_country: 'Bangladesh',
+        cus_phone: order.phone,
+        cus_fax: '01711111111',
+        ship_name: 'Customer Name',
+        ship_add1: 'Dhaka',
+        ship_add2: 'Dhaka',
+        ship_city: 'Dhaka',
+        ship_state: 'Dhaka',
+        ship_postcode: 1000,
+        ship_country: 'Bangladesh',
+      };
+
+
+
+      const sslcz = new SSLCommerzPayment(store_id, store_password, is_live)
+      sslcz.init(data).then(apiResponse => {
+        // Redirect the user to payment gateway
+        let GatewayPageURL = apiResponse.GatewayPageURL;
+
+        // Save the payment
+        orderCollection.insertOne(({
+          ...order,
+          price: orderedService.price,
+          transactionId: tnxId,
+          paid: false,
+        }));
+
+
+        res.send({ url: GatewayPageURL });
+
+      });
+
+
+    })
+
+    // Payment success route
+    app.post('/payment/success', async (req, res) => {
+      const { transactionId } = req.query;
+      const result = await orderCollection.updateOne({ transactionId }, { $set: { paid: true, paidAt: new Date().toLocaleString() } });
+      
+      if (result.modifiedCount > 0) {
+        res.redirect(`https://localhost:3000/payment/success?transactionId=${transactionId}`);
+      }
+
     })
 
     //UPDATE
-    app.patch('/orders/:id',verifyJWT, async(req, res) =>{
+    app.patch('/orders/:id', verifyJWT, async (req, res) => {
       const id = req.params.id;
       const status = req.body.status;
-      const query = {_id: ObjectId(id)}; // Search which item will be updated
+      const query = { _id: ObjectId(id) }; // Search which item will be updated
       const updatedDoc = { // What is the updated value
-        $set:{
+        $set: {
           status: status
         }
       }
@@ -138,9 +206,9 @@ async function run() {
     })
 
     // DELETE 
-    app.delete('/orders/:id',verifyJWT, async(req,res) =>{
-      const id  = req.params.id;
-      const query = {_id: ObjectId(id)};
+    app.delete('/orders/:id', verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
       const result = await orderCollection.deleteOne(query);
 
       res.send(result);
@@ -149,7 +217,7 @@ async function run() {
 
 
   } finally {
-      
+
   }
 }
 
