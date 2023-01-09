@@ -121,17 +121,23 @@ async function run() {
     // CREATE(POST)
     app.post("/orders", verifyJWT, async (req, res) => {
       const order = req.body;
+      const { serviceName, customerName, email, address, postcode, currency } = order;
+
+      if (!serviceName || !customerName || !email || !address || !postcode || currency) {
+        return res.send({ error: 'Please provide all the information' });
+      }
+
       const orderedService = await serviceCollection.findOne({ _id: ObjectId(order.serviceId) });
-      const tnxId = new ObjectId().toString();
+      const tnxId = new ObjectId().toString(); // make a unique transaction id
 
 
       const data = {
         total_amount: orderedService.price,
         currency: order.currency,
         tran_id: tnxId, // use unique tran_id for each api call
-        success_url: `http://localhost:5000/payment/success?transactionId=${tnxId}`,
-        fail_url: 'http://localhost:5000/payment/fail',
-        cancel_url: 'http://localhost:5000/payment/cancel',
+        success_url: `${process.env.SERVER_URL}/payment/success?transactionId=${tnxId}`,
+        fail_url: `${process.env.SERVER_URL}/payment/fail?transactionId=${tnxId}`,
+        cancel_url: `${process.env.SERVER_URL}/payment/cancel`,
         ipn_url: 'http://localhost:3030/ipn',
         shipping_method: 'Courier',
         product_name: order.serviceName,
@@ -182,13 +188,40 @@ async function run() {
     // Payment success route
     app.post('/payment/success', async (req, res) => {
       const { transactionId } = req.query;
+
+      if (!transactionId) {
+        return res.redirect(`${process.env.CLIENT_URL}/payment/fail`);
+      }
+
       const result = await orderCollection.updateOne({ transactionId }, { $set: { paid: true, paidAt: new Date().toLocaleString() } });
-      
+
       if (result.modifiedCount > 0) {
-        res.redirect(`https://localhost:3000/payment/success?transactionId=${transactionId}`);
+        res.redirect(`${process.env.CLIENT_URL}/payment/success?transactionId=${transactionId}`);
+      }
+
+    });
+
+    // Payment fail route
+    app.post('/payment/fail', async (req, res) => {
+      const { transactionId } = req.query;
+
+      if (!transactionId) {
+        return res.redirect(`${process.env.CLIENT_URL}/payment/fail`);
+      }
+      const result = await orderCollection.deleteOne({ transactionId });
+      if (result.deletedCount) {
+        res.redirect(`${process.env.CLIENT_URL}/payment/fail`);
       }
 
     })
+
+    // Get paid service info
+    app.get('/orders/:transactionId', async (req, res) => {
+      const { transactionId } = req.params;
+      const result = await orderCollection.findOne({ transactionId });
+
+      res.send(result);
+    });
 
     //UPDATE
     app.patch('/orders/:id', verifyJWT, async (req, res) => {
