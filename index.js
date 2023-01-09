@@ -115,6 +115,7 @@ async function run() {
       const cursor = orderCollection.find(query);
       const orders = await cursor.toArray();
 
+        // console.log(orders);
       res.send(orders);
     })
 
@@ -223,20 +224,6 @@ async function run() {
       res.send(result);
     });
 
-    //UPDATE
-    app.patch('/orders/:id', verifyJWT, async (req, res) => {
-      const id = req.params.id;
-      const status = req.body.status;
-      const query = { _id: ObjectId(id) }; // Search which item will be updated
-      const updatedDoc = { // What is the updated value
-        $set: {
-          status: status
-        }
-      }
-
-      const result = await orderCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    })
 
     // DELETE 
     app.delete('/orders/:id', verifyJWT, async (req, res) => {
